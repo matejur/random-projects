@@ -5,8 +5,11 @@ const print = std.debug.print;
 const ArrayList = std.ArrayList;
 
 const CELL_SIZE = 64;
-const HEIGHT = CELL_SIZE * 10;
-const WIDTH = CELL_SIZE * 10;
+const ROWS = 9;
+const COLUMNS = 16;
+
+const HEIGHT = CELL_SIZE * ROWS;
+const WIDTH = CELL_SIZE * COLUMNS;
 
 const UP = 0;
 const RIGHT = 1;
@@ -24,21 +27,19 @@ fn imagesEqual(img1: rl.Image, img2: rl.Image) bool {
     return std.mem.eql(u8, pix1, pix2);
 }
 
-fn addIfUnique(img: rl.Image, unique_images: *ArrayList(rl.Image)) !void {
+fn addIfUnique(img: rl.Image, unique_images: *ArrayList(rl.Image)) !bool {
     for (unique_images.items) |unique| {
-        if (imagesEqual(img, unique)) {
-            img.unload();
-            return;
-        }
+        if (imagesEqual(img, unique)) return false;
     }
 
     try unique_images.append(img);
+    return true;
 }
 
 const Tile = struct {
     texture: rl.Texture,
     edges: [4][]usize,
-    neighbors: [4]ArrayList(Tile),
+    neighbors: [4]ArrayList(*Tile),
 
     fn tiles_from_img(path: [*:0]const u8, alloc: std.mem.Allocator) !ArrayList(Tile) {
         var image = try rl.loadImage(path);
@@ -57,8 +58,8 @@ const Tile = struct {
             var imgCopyFlip = image.copy();
             imgCopyFlip.flipHorizontal();
 
-            try addIfUnique(imgCopy, &unique_images);
-            try addIfUnique(imgCopyFlip, &unique_images);
+            if (!try addIfUnique(imgCopy, &unique_images)) imgCopy.unload();
+            if (!try addIfUnique(imgCopyFlip, &unique_images)) imgCopyFlip.unload();
 
             image.rotateCW();
         }
@@ -105,25 +106,25 @@ const Tile = struct {
             }
         }
 
-        const neighbors = [4]ArrayList(Tile){
-            ArrayList(Tile).init(alloc),
-            ArrayList(Tile).init(alloc),
-            ArrayList(Tile).init(alloc),
-            ArrayList(Tile).init(alloc),
+        const neighbors = [4]ArrayList(*Tile){
+            ArrayList(*Tile).init(alloc),
+            ArrayList(*Tile).init(alloc),
+            ArrayList(*Tile).init(alloc),
+            ArrayList(*Tile).init(alloc),
         };
 
         img.resizeNN(CELL_SIZE, CELL_SIZE);
         defer img.unload();
 
         return Tile{
-            .edges = edges,
             .texture = try img.toTexture(),
+            .edges = edges,
             .neighbors = neighbors,
         };
     }
 
     fn addNeighbors(self: *Tile, other: ArrayList(Tile)) !void {
-        for (other.items) |o| {
+        for (other.items) |*o| {
             const e1 = self.edges;
             const e2 = o.edges;
             if (std.mem.eql(usize, e1[UP], e2[DOWN])) try self.neighbors[UP].append(o);
@@ -142,6 +143,136 @@ const Tile = struct {
 
         for (self.edges) |edge| {
             alloc.free(edge);
+        }
+    }
+};
+
+const Cell = struct {
+    x: i32,
+    y: i32,
+    possible_tiles: ArrayList(*Tile),
+    collapsed_tile: ?*Tile,
+
+    fn init(x: i32, y: i32, tiles: ArrayList(*Tile)) Cell {
+        return Cell{
+            .x = x,
+            .y = y,
+            .possible_tiles = tiles,
+            .collapsed_tile = null,
+        };
+    }
+
+    fn draw(self: Cell) void {
+        const draw_x = self.x * CELL_SIZE;
+        const draw_y = self.y * CELL_SIZE;
+        if (self.collapsed_tile) |tile| {
+            rl.drawTexture(tile.texture, draw_x, draw_y, rl.Color.white);
+            return;
+        }
+
+        rl.drawRectangle(
+            draw_x + 1,
+            draw_y + 1,
+            CELL_SIZE - 2,
+            CELL_SIZE - 2,
+            rl.Color.white,
+        );
+
+        const text_size = 24;
+        rl.drawText(
+            rl.textFormat("%d", .{self.possible_tiles.items.len}),
+            draw_x + CELL_SIZE / 2 - text_size / 2,
+            draw_y + CELL_SIZE / 2 - text_size / 2,
+            text_size,
+            rl.Color.black,
+        );
+    }
+
+    fn reduceOptions(self: *Cell, tile: *Tile, dir: comptime_int) void {
+        var index = self.possible_tiles.items.len;
+        while (index > 0) : (index -= 1) {
+            const pos = self.possible_tiles.items[index - 1];
+            var is_possible = false;
+            for (tile.neighbors[dir].items) |neig| {
+                if (neig == pos) {
+                    is_possible = true;
+                    break;
+                }
+            }
+
+            if (!is_possible) {
+                _ = self.possible_tiles.swapRemove(index - 1);
+            }
+        }
+    }
+};
+
+const Wave = struct {
+    cells: []Cell,
+
+    fn init(cells: []Cell) Wave {
+        return Wave{
+            .cells = cells,
+        };
+    }
+
+    fn collapse(self: Wave) void {
+        var min: usize = std.math.maxInt(usize);
+        for (self.cells) |cell| {
+            const tiles = cell.possible_tiles.items.len;
+            if (cell.collapsed_tile == null and tiles < min) {
+                min = tiles;
+            }
+        }
+
+        var num_min: u32 = 0;
+        for (self.cells) |cell| {
+            const tiles = cell.possible_tiles.items.len;
+            if (tiles == min) {
+                num_min += 1;
+            }
+        }
+
+        const cell_index = rand.uintLessThan(usize, num_min);
+        var current_min: i32 = 0;
+
+        var cell = blk: {
+            for (self.cells) |*cell| {
+                const possible = cell.possible_tiles.items.len;
+                if (possible == min) {
+                    if (cell_index == current_min) {
+                        break :blk cell;
+                    }
+                    current_min += 1;
+                }
+            }
+            unreachable;
+        };
+
+        const tile_index = rand.uintLessThan(usize, cell.possible_tiles.items.len);
+        const collapsed_tile = cell.possible_tiles.items[tile_index];
+
+        cell.collapsed_tile = collapsed_tile;
+        cell.possible_tiles.clearRetainingCapacity();
+
+        const x: usize = @intCast(cell.x);
+        const y: usize = @intCast(cell.y);
+
+        if (x > 0) {
+            var leftCell = &self.cells[y * COLUMNS + x - 1];
+            leftCell.reduceOptions(collapsed_tile, LEFT);
+        }
+        if (x < COLUMNS - 1) {
+            var rightCell = &self.cells[y * COLUMNS + x + 1];
+            rightCell.reduceOptions(collapsed_tile, RIGHT);
+        }
+        if (y > 0) {
+            var upCell = &self.cells[(y - 1) * COLUMNS + x];
+            upCell.reduceOptions(collapsed_tile, UP);
+        }
+        if (y < ROWS - 1) {
+            var downCell = &self.cells[(y + 1) * COLUMNS + x];
+            downCell.reduceOptions(collapsed_tile, DOWN);
         }
     }
 };
@@ -174,32 +305,32 @@ pub fn main() !void {
         try t1.addNeighbors(tiles);
     }
 
-    const t1 = tiles.getLast();
+    var cells = [_]Cell{undefined} ** (ROWS * COLUMNS);
 
-    rl.setTargetFPS(10);
+    for (0..ROWS) |y| {
+        for (0..COLUMNS) |x| {
+            var tile_ptrs = ArrayList(*Tile).init(alloc);
+            for (tiles.items) |*tile| {
+                try tile_ptrs.append(tile);
+            }
+            cells[y * COLUMNS + x] = Cell.init(@intCast(x), @intCast(y), tile_ptrs);
+        }
+    }
+
+    const wave = Wave.init(&cells);
+    wave.collapse();
+
+    rl.setTargetFPS(30);
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        var x: i32 = 0;
-        var y: i32 = 0;
-        for (tiles.items) |tile| {
-            rl.drawTexture(tile.texture, x * CELL_SIZE, y * CELL_SIZE, rl.Color.white);
-
-            x += 1;
-            if (x == 10) {
-                x = 0;
-                y += 1;
-            }
+        if (rl.isKeyDown(rl.KeyboardKey.space)) {
+            wave.collapse();
         }
 
-        x = 5;
-        y = 5;
-        rl.drawTexture(t1.texture, x * CELL_SIZE, y * CELL_SIZE, rl.Color.white);
-
-        const neigh_idx = rand.intRangeLessThan(usize, 0, t1.neighbors[UP].items.len);
-        const t2 = t1.neighbors[UP].items[neigh_idx];
-        y -= 1;
-        rl.drawTexture(t2.texture, x * CELL_SIZE, y * CELL_SIZE, rl.Color.white);
+        for (cells) |cell| {
+            cell.draw();
+        }
     }
 }
