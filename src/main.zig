@@ -4,9 +4,9 @@ const rl = @import("raylib");
 const print = std.debug.print;
 const ArrayList = std.ArrayList;
 
-const CELL_SIZE = 64;
-const ROWS = 9;
-const COLUMNS = 16;
+const CELL_SIZE = 32;
+const ROWS = 20;
+const COLUMNS = 40;
 
 const HEIGHT = CELL_SIZE * ROWS;
 const WIDTH = CELL_SIZE * COLUMNS;
@@ -15,9 +15,6 @@ const UP = 0;
 const RIGHT = 1;
 const DOWN = 2;
 const LEFT = 3;
-
-var prng = std.rand.DefaultPrng.init(0);
-const rand = prng.random();
 
 fn imagesEqual(img1: rl.Image, img2: rl.Image) bool {
     const size: usize = @intCast(img1.width * img1.height * 4);
@@ -170,12 +167,13 @@ const Cell = struct {
             return;
         }
 
+        const color = if (self.possible_tiles.items.len == 0) rl.Color.red else rl.Color.white;
         rl.drawRectangle(
             draw_x + 1,
             draw_y + 1,
             CELL_SIZE - 2,
             CELL_SIZE - 2,
-            rl.Color.white,
+            color,
         );
 
         const text_size = 24;
@@ -216,7 +214,7 @@ const Wave = struct {
         };
     }
 
-    fn collapse(self: Wave) void {
+    fn collapse(self: Wave, rand: std.Random) void {
         var min: usize = std.math.maxInt(usize);
         for (self.cells) |cell| {
             const tiles = cell.possible_tiles.items.len;
@@ -225,6 +223,8 @@ const Wave = struct {
             }
         }
 
+        if (min == 0) return;
+
         var num_min: u32 = 0;
         for (self.cells) |cell| {
             const tiles = cell.possible_tiles.items.len;
@@ -232,6 +232,8 @@ const Wave = struct {
                 num_min += 1;
             }
         }
+
+        if (num_min == 0) return;
 
         const cell_index = rand.uintLessThan(usize, num_min);
         var current_min: i32 = 0;
@@ -280,6 +282,14 @@ const Wave = struct {
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const alloc = arena.allocator();
+    defer arena.deinit();
+
+    var prng = std.rand.DefaultPrng.init(blk: {
+        var seed: u64 = undefined;
+        try std.posix.getrandom(std.mem.asBytes(&seed));
+        break :blk seed;
+    });
+    const rand = prng.random();
 
     rl.setTraceLogLevel(rl.TraceLogLevel.none);
     rl.initWindow(WIDTH, HEIGHT, "Wave function collapse");
@@ -291,11 +301,11 @@ pub fn main() !void {
         tiles.deinit();
     }
 
-    var assets_dir = try std.fs.cwd().openDir("assets", .{ .iterate = true });
+    var assets_dir = try std.fs.cwd().openDir("assets/simple", .{ .iterate = true });
     var iter = assets_dir.iterate();
 
     while (try iter.next()) |file| {
-        const path = try std.fmt.allocPrintZ(alloc, "assets/{s}", .{file.name});
+        const path = try std.fmt.allocPrintZ(alloc, "assets/simple/{s}", .{file.name});
         const temp = try Tile.tiles_from_img(path, alloc);
         try tiles.appendSlice(temp.items);
         temp.deinit();
@@ -318,19 +328,20 @@ pub fn main() !void {
     }
 
     const wave = Wave.init(&cells);
-    wave.collapse();
+    wave.collapse(rand);
 
-    rl.setTargetFPS(30);
+    rl.setTargetFPS(60);
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        if (rl.isKeyDown(rl.KeyboardKey.space)) {
-            wave.collapse();
-        }
+        for (0..10) |_|
+            wave.collapse(rand);
 
         for (cells) |cell| {
             cell.draw();
         }
+
+        // print("{}\n", .{rl.getFrameTime()});
     }
 }
