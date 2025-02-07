@@ -341,7 +341,5 @@ pub fn main() !void {
         for (cells) |cell| {
             cell.draw();
         }
-
-        // print("{}\n", .{rl.getFrameTime()});
     }
 }
