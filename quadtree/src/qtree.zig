@@ -1,39 +1,11 @@
 const std = @import("std");
 const rl = @import("raylib");
+const shapes = @import("shapes.zig");
 
-const Rectangle = struct {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
+const Rectangle = shapes.Rectangle;
+const Circle = shapes.Circle;
 
-    pub fn init(x: i32, y: i32, width: i32, height: i32) Rectangle {
-        std.debug.print("Created rectangle {} {} {} {}\n", .{ x, y, width, height });
-        return Rectangle{
-            .x = x,
-            .y = y,
-            .width = width,
-            .height = height,
-        };
-    }
-
-    pub fn contains(self: Rectangle, point: anytype) bool {
-        return point.x >= self.x and point.x <= self.x + self.width and
-            point.y >= self.y and point.y <= self.y + self.height;
-    }
-
-    pub fn draw(self: Rectangle) void {
-        rl.drawRectangleLines(
-            self.x,
-            self.y,
-            self.width,
-            self.height,
-            rl.Color.white,
-        );
-    }
-};
-
-pub fn QTree(comptime T: type) type {
+pub fn QTree(comptime T: type, comptime max_children: comptime_int) type {
     if (!@hasField(T, "x") or !@hasField(T, "y")) {
         @compileError("Type " ++ @typeName(T) ++ " must have fields x and y");
     }
@@ -46,18 +18,13 @@ pub fn QTree(comptime T: type) type {
         children: [4]*Self = undefined,
         split: bool = false,
 
-        items: std.BoundedArray(*const T, 4),
+        items: std.BoundedArray(*const T, max_children),
 
-        pub fn init(x: i32, y: i32, width: i32, height: i32, alloc: std.mem.Allocator) Self {
+        pub fn init(bound: Rectangle, alloc: std.mem.Allocator) Self {
             return .{
                 .alloc = alloc,
-                .bounds = .{
-                    .x = x,
-                    .y = y,
-                    .width = width,
-                    .height = height,
-                },
-                .items = std.BoundedArray(*const T, 4).init(0) catch unreachable,
+                .bounds = bound,
+                .items = std.BoundedArray(*const T, max_children).init(0) catch unreachable,
             };
         }
 
@@ -86,10 +53,10 @@ pub fn QTree(comptime T: type) type {
                     child.* = try self.alloc.create(Self);
                 }
 
-                self.children[0].* = Self.from_rectangle(nw_rect, self.alloc);
-                self.children[1].* = Self.from_rectangle(ne_rect, self.alloc);
-                self.children[2].* = Self.from_rectangle(sw_rect, self.alloc);
-                self.children[3].* = Self.from_rectangle(se_rect, self.alloc);
+                self.children[0].* = Self.init(nw_rect, self.alloc);
+                self.children[1].* = Self.init(ne_rect, self.alloc);
+                self.children[2].* = Self.init(sw_rect, self.alloc);
+                self.children[3].* = Self.init(se_rect, self.alloc);
                 self.split = true;
 
                 for (self.children) |child| {
@@ -103,8 +70,24 @@ pub fn QTree(comptime T: type) type {
             };
         }
 
+        pub fn query(self: *Self, circle: Circle, out: *std.ArrayList(*const T)) !void {
+            if (!self.bounds.overlapsCircle(circle)) return;
+
+            if (!self.split) {
+                for (self.items.constSlice()) |item| {
+                    if (circle.contains(item))
+                        try out.append(item);
+                }
+                return;
+            }
+
+            for (self.children) |child| {
+                try child.query(circle, out);
+            }
+        }
+
         pub fn draw(self: *Self) void {
-            self.bounds.draw();
+            self.bounds.draw(null);
 
             if (self.split) {
                 for (self.children) |child| {
@@ -115,14 +98,6 @@ pub fn QTree(comptime T: type) type {
                     rl.drawCircle(item.x, item.y, 5, rl.Color.green);
                 }
             }
-        }
-
-        fn from_rectangle(rect: Rectangle, alloc: std.mem.Allocator) Self {
-            return .{
-                .alloc = alloc,
-                .bounds = rect,
-                .items = std.BoundedArray(*const T, 4).init(0) catch unreachable,
-            };
         }
     };
 }

@@ -1,6 +1,10 @@
 const std = @import("std");
 const rl = @import("raylib");
 const QTree = @import("qtree.zig").QTree;
+const shapes = @import("shapes.zig");
+
+const Rectangle = shapes.Rectangle;
+const Circle = shapes.Circle;
 
 const print = std.debug.print;
 
@@ -17,8 +21,32 @@ pub fn main() !void {
     const alloc = arena.allocator();
     defer arena.deinit();
 
-    var tree = QTree(Point).init(0, 0, WIDTH, HEIGHT, alloc);
-    print("{}\n", .{tree.items.len});
+    var prng = std.rand.DefaultPrng.init(blk: {
+        var seed: u64 = undefined;
+        try std.posix.getrandom(std.mem.asBytes(&seed));
+        break :blk seed;
+    });
+    const rand = prng.random();
+
+    var tree = QTree(Point, 3).init(
+        .{
+            .x = 0,
+            .y = 0,
+            .width = WIDTH,
+            .height = HEIGHT,
+        },
+        alloc,
+    );
+
+    for (0..1000) |_| {
+        const pt: *Point = try alloc.create(Point);
+        pt.* = .{
+            .x = rand.intRangeLessThan(i32, 0, WIDTH),
+            .y = rand.intRangeLessThan(i32, 0, HEIGHT),
+        };
+
+        try tree.add(pt);
+    }
 
     rl.setTraceLogLevel(rl.TraceLogLevel.none);
     rl.initWindow(WIDTH, HEIGHT, "Wave function collapse");
@@ -32,16 +60,21 @@ pub fn main() !void {
 
         rl.clearBackground(rl.Color.black);
 
-        if (rl.isMouseButtonPressed(rl.MouseButton.left)) {
-            const pt = try alloc.create(Point);
-            pt.* = .{
-                .x = rl.getMouseX(),
-                .y = rl.getMouseY(),
-            };
+        const circ = Circle{
+            .x = rl.getMouseX(),
+            .y = rl.getMouseY(),
+            .r = 100,
+        };
 
-            try tree.add(pt);
-        }
+        var inside = std.ArrayList(*const Point).init(alloc);
+        defer inside.deinit();
 
+        try tree.query(circ, &inside);
         tree.draw();
+        circ.draw();
+
+        for (inside.items) |pt| {
+            rl.drawCircle(pt.x, pt.y, 5, rl.Color.blue);
+        }
     }
 }

@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{ .name = "wfc", .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize });
+    const exe = b.addExecutable(.{ .name = "quadtree", .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize });
 
     const raylib_dep = b.dependency("raylib-zig", .{
         .target = target,
