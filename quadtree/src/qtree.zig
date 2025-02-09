@@ -1,6 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
-const shapes = @import("shapes.zig");
+pub const shapes = @import("shapes.zig");
 
 const Rectangle = shapes.Rectangle;
 const Circle = shapes.Circle;
@@ -38,7 +38,7 @@ pub fn QTree(comptime T: type, comptime max_children: comptime_int) type {
                 return;
             }
 
-            // If full, then
+            // If full, then split
             self.items.append(item) catch {
                 const rect = self.bounds;
                 const new_width = @divFloor(rect.width, 2);
@@ -86,6 +86,10 @@ pub fn QTree(comptime T: type, comptime max_children: comptime_int) type {
             }
         }
 
+        pub fn queryXYR(self: *Self, x: i32, y: i32, r: i32, out: *std.ArrayList(*const T)) !void {
+            try self.query(.{ .x = x, .y = y, .r = r }, out);
+        }
+
         pub fn draw(self: *Self) void {
             self.bounds.draw(null);
 
@@ -98,6 +102,29 @@ pub fn QTree(comptime T: type, comptime max_children: comptime_int) type {
                     rl.drawCircle(item.x, item.y, 5, rl.Color.green);
                 }
             }
+        }
+
+        pub fn itemCount(self: *Self) usize {
+            var count: usize = self.items.len;
+
+            if (self.split) {
+                for (self.children) |child| {
+                    count += child.itemCount();
+                }
+            }
+
+            return count;
+        }
+
+        pub fn clear(self: *Self) void {
+            if (self.split) {
+                for (self.children) |child| {
+                    child.clear();
+                    self.alloc.destroy(child);
+                }
+                self.split = false;
+            }
+            self.items.resize(0) catch unreachable;
         }
     };
 }

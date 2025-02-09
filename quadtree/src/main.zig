@@ -1,6 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
-const QTree = @import("qtree.zig").QTree;
+pub const QTree = @import("qtree.zig").QTree;
 const shapes = @import("shapes.zig");
 
 const Rectangle = shapes.Rectangle;
@@ -49,7 +49,7 @@ pub fn main() !void {
     }
 
     rl.setTraceLogLevel(rl.TraceLogLevel.none);
-    rl.initWindow(WIDTH, HEIGHT, "Wave function collapse");
+    rl.initWindow(WIDTH, HEIGHT, "Quadtree");
     rl.setWindowPosition(3500, 200);
     defer rl.closeWindow();
 

@@ -19,10 +19,13 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("raylib", raylib);
     exe.root_module.addImport("raygui", raygui);
 
-    b.installArtifact(exe);
+    const qtree = b.dependency("quadtree", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
-    const module1 = b.addModule("quadtree", .{ .root_source_file = b.path("src/qtree.zig") });
-    module1.addImport("raylib", raylib);
+    exe.root_module.addImport("quadtree", qtree.module("quadtree"));
+    b.installArtifact(exe);
 
     const run_exe = b.addRunArtifact(exe);
 
